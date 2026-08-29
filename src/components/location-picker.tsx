@@ -45,7 +45,8 @@ const OPENROUTESERVICE_API_KEY =
   process.env.OPENROUTESERVICE_API_KEY ??
   "eyJvcmciOiI1YjNjZTM1OTc4NTExMTAwMDFjZjYyNDgiLCJpZCI6IjdhZTFlYzBlNTEzZDQ5ZjQ5Zjg1NDFhNzM1NDIyZDhjIiwiaCI6Im11cm11cjY0In0=";
 const OPENROUTESERVICE_URL = "https://api.openrouteservice.org/v2/directions";
-const AI_ROUTE_PROXY_URL = "http://localhost:3001/api/route-poi";
+const AI_ROUTE_PROXY_URL =
+  process.env.EXPO_PUBLIC_AI_ROUTE_PROXY_URL ?? "/api/route-poi";
 
 async function extractChatGptTextFromLink(
   rawValue: string,

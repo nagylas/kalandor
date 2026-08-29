@@ -24,12 +24,13 @@ export type Trip = {
   mapImageName?: string;
 };
 
-const API_BASE_URL = "http://localhost:3001";
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "";
 const STORAGE_DIRECTORY = `${FileSystem.documentDirectory ?? FileSystem.cacheDirectory ?? ""}data/`;
 const TRIPS_FILE_PATH = `${STORAGE_DIRECTORY}trips.json`;
 
 async function fetchApi<T>(path: string, options: RequestInit = {}) {
-  const response = await fetch(`${API_BASE_URL}${path}`, options);
+  const url = `${API_BASE_URL}${path}`;
+  const response = await fetch(url, options);
   if (!response.ok) {
     const payload = await response.json().catch(() => ({}));
     throw new Error(payload.error || "Network response was not ok.");
