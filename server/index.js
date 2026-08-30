@@ -206,6 +206,6 @@ const server = http.createServer(async (req, res) => {
   sendError(res, 404, "Route not found.");
 });
 
-server.listen(PORT, () => {
-  console.log(`Server is running on http://localhost:${PORT}`);
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`Server is running on http://0.0.0.0:${PORT}`);
 });
