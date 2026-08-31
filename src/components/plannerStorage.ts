@@ -474,8 +474,16 @@ export async function shareTripWithUser(
   sharedByEmail?: string,
   sharedByUid?: string,
 ) {
-  if (!db || !targetUid || !trip?.id) {
-    return;
+  if (!db) {
+    throw new Error("Firestore is not initialized.");
+  }
+
+  if (!targetUid) {
+    throw new Error("No target user was selected.");
+  }
+
+  if (!trip?.id) {
+    throw new Error("The trip is missing an id and cannot be shared.");
   }
 
   const sharedTripsCollection = getUserSharedTripsCollection(targetUid);

@@ -19,7 +19,8 @@ service cloud.firestore {
       allow create: if isOwner(userId)
         && request.resource.data.uid == userId
         && request.resource.data.email is string
-        && request.resource.data.createdAt is string;
+        && request.resource.data.createdAt is string
+        && request.resource.data.role in ['admin', 'user'];
 
       allow read: if isOwner(userId) || isAdminUser();
       allow update, delete: if isOwner(userId) || isAdminUser();

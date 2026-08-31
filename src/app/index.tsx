@@ -3495,10 +3495,10 @@ export default function HomeScreen() {
             <View style={styles.shareOverlay}>
               <View style={styles.shareSheet}>
                 <ThemedText type="subtitle" style={styles.shareTitle}>
-                  Share HTML report
+                  Share trip
                 </ThemedText>
                 <ThemedText type="small" style={styles.shareSubtitle}>
-                  Select a regular user to receive the daily plan.
+                  Select a regular user to make this trip visible after login.
                 </ThemedText>
 
                 {shareUsers.map((user) => (
@@ -3944,7 +3944,7 @@ const styles = StyleSheet.create({
     alignItems: "stretch",
   },
   shareOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: "rgba(2, 6, 23, 0.72)",
     alignItems: "center",
     justifyContent: "center",
