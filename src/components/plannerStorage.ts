@@ -1,5 +1,12 @@
-import * as FileSystem from "expo-file-system/legacy";
-import { Platform } from "react-native";
+import {
+    collection,
+    deleteDoc,
+    doc,
+    getDocs,
+    setDoc,
+} from "firebase/firestore";
+
+import { auth, db } from "@/../firebase";
 
 import type { DayPlan, Segment } from "./plannerTypes";
 
@@ -24,32 +31,16 @@ export type Trip = {
   mapImageName?: string;
 };
 
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_BASE_URL ?? "";
-const STORAGE_DIRECTORY = `${FileSystem.documentDirectory ?? FileSystem.cacheDirectory ?? ""}data/`;
-const TRIPS_FILE_PATH = `${STORAGE_DIRECTORY}trips.json`;
-
-async function fetchApi<T>(path: string, options: RequestInit = {}) {
-  const url = `${API_BASE_URL}${path}`;
-  const response = await fetch(url, options);
-  if (!response.ok) {
-    const payload = await response.json().catch(() => ({}));
-    throw new Error(payload.error || "Network response was not ok.");
-  }
-  return response.json() as Promise<T>;
+function getCurrentUserId() {
+  return auth?.currentUser?.uid ?? null;
 }
 
-async function ensureStorageDirectory() {
-  if (Platform.OS === "web") {
-    return;
+function getUserTripsCollection(uid: string) {
+  if (!db) {
+    throw new Error("Firestore is not initialized.");
   }
 
-  if (!STORAGE_DIRECTORY) {
-    throw new Error("No app storage directory is available on this device.");
-  }
-
-  await FileSystem.makeDirectoryAsync(STORAGE_DIRECTORY, {
-    intermediates: true,
-  });
+  return collection(db, "users", uid, "trips");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -406,52 +397,50 @@ export function getAvailableSegments(
 }
 
 export async function readTripsFromFile(): Promise<Trip[]> {
-  if (Platform.OS === "web") {
-    try {
-      const response = await fetchApi<unknown[]>("/api/trips");
-      if (!Array.isArray(response)) {
-        return [];
-      }
-
-      return response
-        .map((trip) => sanitizeTrip(trip))
-        .filter((trip): trip is Trip => Boolean(trip));
-    } catch {
-      return [];
-    }
+  const uid = getCurrentUserId();
+  if (!uid || !db) {
+    return [];
   }
 
   try {
-    await ensureStorageDirectory();
-    const content = await FileSystem.readAsStringAsync(TRIPS_FILE_PATH);
-    const parsed = JSON.parse(content);
-    if (!Array.isArray(parsed)) {
-      return [];
-    }
+    const tripsCollection = getUserTripsCollection(uid);
+    const snapshot = await getDocs(tripsCollection);
 
-    return parsed
-      .map((trip) => sanitizeTrip(trip))
+    return snapshot.docs
+      .map((docSnapshot) => sanitizeTrip(docSnapshot.data()))
       .filter((trip): trip is Trip => Boolean(trip));
-  } catch {
+  } catch (error) {
+    console.warn("Failed to read trips from Firestore:", error);
     return [];
   }
 }
 
 export async function writeTripsToFile(trips: Trip[]) {
-  if (Platform.OS === "web") {
-    await fetchApi("/api/trips", {
-      method: "PUT",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ trips }),
-    });
+  const uid = getCurrentUserId();
+  if (!uid || !db) {
     return;
   }
 
-  await ensureStorageDirectory();
-  await FileSystem.writeAsStringAsync(
-    TRIPS_FILE_PATH,
-    JSON.stringify(trips, null, 2),
-  );
+  try {
+    const tripsCollection = getUserTripsCollection(uid);
+    const existingSnapshot = await getDocs(tripsCollection);
+    const incomingIds = new Set(trips.map((trip) => trip.id));
+
+    for (const trip of trips) {
+      await setDoc(doc(tripsCollection, trip.id), {
+        ...trip,
+        ownerUid: uid,
+        updatedAt: new Date().toISOString(),
+      });
+    }
+
+    for (const existingDoc of existingSnapshot.docs) {
+      if (!incomingIds.has(existingDoc.id)) {
+        await deleteDoc(doc(tripsCollection, existingDoc.id));
+      }
+    }
+  } catch (error) {
+    console.warn("Failed to write trips to Firestore:", error);
+    throw error;
+  }
 }
