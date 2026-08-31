@@ -29,6 +29,12 @@ export type Trip = {
   savedLocations?: SavedTripLocation[];
 };
 
+export type SharedTripRecord = Trip & {
+  sharedByEmail?: string;
+  sharedAt?: string;
+  sharedByUid?: string;
+};
+
 function getCurrentUserId() {
   return auth?.currentUser?.uid ?? null;
 }
@@ -39,6 +45,14 @@ function getUserTripsCollection(uid: string) {
   }
 
   return collection(db, "users", uid, "trips");
+}
+
+function getUserSharedTripsCollection(uid: string) {
+  if (!db) {
+    throw new Error("Firestore is not initialized.");
+  }
+
+  return collection(db, "users", uid, "sharedTrips");
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -405,6 +419,72 @@ export async function readTripsFromFile(): Promise<Trip[]> {
     console.warn("Failed to read trips from Firestore:", error);
     return [];
   }
+}
+
+export async function readSharedTripsForUser(
+  uid: string,
+): Promise<SharedTripRecord[]> {
+  if (!db || !uid) {
+    return [];
+  }
+
+  try {
+    const sharedTripsCollection = getUserSharedTripsCollection(uid);
+    const snapshot = await getDocs(sharedTripsCollection);
+
+    return snapshot.docs
+      .map((docSnapshot) => {
+        const data = docSnapshot.data();
+        if (!isRecord(data)) {
+          return null;
+        }
+
+        const trip = sanitizeTrip(data);
+        if (!trip) {
+          return null;
+        }
+
+        return {
+          ...trip,
+          sharedByEmail:
+            typeof data.sharedByEmail === "string"
+              ? data.sharedByEmail
+              : undefined,
+          sharedAt:
+            typeof data.sharedAt === "string" ? data.sharedAt : undefined,
+          sharedByUid:
+            typeof data.sharedByUid === "string" ? data.sharedByUid : undefined,
+        } satisfies SharedTripRecord;
+      })
+      .filter((trip): trip is SharedTripRecord => Boolean(trip))
+      .sort((left, right) =>
+        (right.sharedAt ?? right.startDate).localeCompare(
+          left.sharedAt ?? left.startDate,
+        ),
+      );
+  } catch (error) {
+    console.warn("Failed to read shared trips from Firestore:", error);
+    return [];
+  }
+}
+
+export async function shareTripWithUser(
+  targetUid: string,
+  trip: Trip,
+  sharedByEmail?: string,
+  sharedByUid?: string,
+) {
+  if (!db || !targetUid || !trip?.id) {
+    return;
+  }
+
+  const sharedTripsCollection = getUserSharedTripsCollection(targetUid);
+  await setDoc(doc(sharedTripsCollection, trip.id), {
+    ...trip,
+    sharedByEmail: sharedByEmail ?? "",
+    sharedByUid: sharedByUid ?? "",
+    sharedAt: new Date().toISOString(),
+  });
 }
 
 export async function writeTripsToFile(trips: Trip[]) {

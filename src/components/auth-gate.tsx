@@ -5,7 +5,7 @@ import {
     signOut,
     type User,
 } from "firebase/auth";
-import { doc, getDoc, setDoc } from "firebase/firestore";
+import { collection, doc, getDoc, getDocs, setDoc } from "firebase/firestore";
 import { useEffect, useState } from "react";
 import { Pressable, StyleSheet, Text, TextInput, View } from "react-native";
 
@@ -33,6 +33,17 @@ export default function AuthGate({ children }: AuthGateProps) {
   const [error, setError] = useState("");
   const [authReady, setAuthReady] = useState(false);
   const [role, setRole] = useState<"admin" | "user" | null>(null);
+  const [sharedTrips, setSharedTrips] = useState<
+    Array<{
+      id: string;
+      name: string;
+      startDate: string;
+      endDate: string;
+      sharedByEmail?: string;
+      sharedAt?: string;
+    }>
+  >([]);
+  const [sharedTripsLoading, setSharedTripsLoading] = useState(false);
 
   useEffect(() => {
     if (!auth) {
@@ -93,6 +104,66 @@ export default function AuthGate({ children }: AuthGateProps) {
 
     return unsubscribe;
   }, []);
+
+  useEffect(() => {
+    if (!user || !db || role !== "user") {
+      setSharedTrips([]);
+      return;
+    }
+
+    let isMounted = true;
+    setSharedTripsLoading(true);
+
+    getDocs(collection(db, "users", user.uid, "sharedTrips"))
+      .then((snapshot) => {
+        if (!isMounted) {
+          return;
+        }
+
+        const nextTrips = snapshot.docs
+          .map((docSnapshot) => {
+            const data = docSnapshot.data();
+            return {
+              id: docSnapshot.id,
+              name:
+                typeof data.name === "string" && data.name.trim()
+                  ? data.name
+                  : "Shared trip",
+              startDate:
+                typeof data.startDate === "string" ? data.startDate : "",
+              endDate: typeof data.endDate === "string" ? data.endDate : "",
+              sharedByEmail:
+                typeof data.sharedByEmail === "string"
+                  ? data.sharedByEmail
+                  : undefined,
+              sharedAt:
+                typeof data.sharedAt === "string" ? data.sharedAt : undefined,
+            };
+          })
+          .sort((left, right) =>
+            (right.sharedAt ?? right.endDate).localeCompare(
+              left.sharedAt ?? left.endDate,
+            ),
+          );
+
+        setSharedTrips(nextTrips);
+      })
+      .catch((sharedError) => {
+        console.warn("Unable to load shared trips:", sharedError);
+        if (isMounted) {
+          setSharedTrips([]);
+        }
+      })
+      .finally(() => {
+        if (isMounted) {
+          setSharedTripsLoading(false);
+        }
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [role, user]);
 
   const handleSubmit = async () => {
     if (!auth) {
@@ -197,12 +268,36 @@ export default function AuthGate({ children }: AuthGateProps) {
   if (!isAdmin) {
     return (
       <View style={styles.welcomeContainer}>
-        <Text style={styles.welcomeTitle}>Welcome</Text>
+        <Text style={styles.welcomeTitle}>Shared trips</Text>
         <Text style={styles.welcomeText}>
-          Your account is registered, but this frontend is currently available
-          for administrators only.
+          Your available trip plans from the admin team.
         </Text>
         <Text style={styles.welcomeEmail}>{user.email}</Text>
+
+        {sharedTripsLoading ? (
+          <Text style={styles.sharedTripsStatus}>Loading shared trips...</Text>
+        ) : sharedTrips.length === 0 ? (
+          <Text style={styles.sharedTripsEmpty}>
+            No shared trips are available yet.
+          </Text>
+        ) : (
+          <View style={styles.sharedList}>
+            {sharedTrips.map((trip) => (
+              <View key={trip.id} style={styles.sharedTripCard}>
+                <Text style={styles.sharedTripName}>{trip.name}</Text>
+                <Text style={styles.sharedTripMeta}>
+                  {trip.startDate} - {trip.endDate}
+                </Text>
+                {trip.sharedByEmail ? (
+                  <Text style={styles.sharedTripMeta}>
+                    Shared by: {trip.sharedByEmail}
+                  </Text>
+                ) : null}
+              </View>
+            ))}
+          </View>
+        )}
+
         <Pressable style={styles.secondaryButton} onPress={() => signOut(auth)}>
           <Text style={styles.secondaryButtonText}>Sign out</Text>
         </Pressable>
@@ -312,7 +407,42 @@ const styles = StyleSheet.create({
     color: "#a7d0ff",
     fontSize: 16,
     marginTop: 18,
-    marginBottom: 28,
+    marginBottom: 18,
+  },
+  sharedTripsStatus: {
+    color: "#dbeafe",
+    fontSize: 14,
+    marginBottom: 16,
+  },
+  sharedTripsEmpty: {
+    color: "#fcd34d",
+    fontSize: 15,
+    marginBottom: 18,
+    textAlign: "center",
+  },
+  sharedList: {
+    width: "100%",
+    maxWidth: 520,
+    gap: 10,
+    marginBottom: 18,
+  },
+  sharedTripCard: {
+    backgroundColor: "#0f172a",
+    borderWidth: 1,
+    borderColor: "rgba(148,163,184,0.35)",
+    borderRadius: 12,
+    padding: 14,
+  },
+  sharedTripName: {
+    color: "#f8fafc",
+    fontSize: 18,
+    fontWeight: "700",
+    marginBottom: 4,
+  },
+  sharedTripMeta: {
+    color: "#cbd5e1",
+    fontSize: 13,
+    marginTop: 2,
   },
   secondaryButton: {
     backgroundColor: "#1f2d3d",

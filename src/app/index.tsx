@@ -11,7 +11,7 @@ import {
   StyleSheet,
   TextInput,
   useWindowDimensions,
-  View
+  View,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -24,7 +24,7 @@ const DateTimePicker =
 
 import { collection, getDocs } from "firebase/firestore";
 
-import { db } from "@/../firebase";
+import { auth, db } from "@/../firebase";
 import DaySegmentList from "@/components/DaySegmentList";
 import DayTimeTable from "@/components/DayTimeTable";
 import { PlannerPage } from "@/components/plannerpage";
@@ -32,6 +32,7 @@ import {
   getAvailableSegments,
   getTripSegments,
   readTripsFromFile,
+  shareTripWithUser,
   sortSegmentsByTime,
   sortTripsByStartDate,
   type Trip,
@@ -2923,115 +2924,23 @@ export default function HomeScreen() {
       setShareUserPickerOpen(false);
 
       try {
-        const tripDays = enumerateDays(
-          selectedTrip.startDate,
-          selectedTrip.endDate,
-        );
-        const exportDays: TripExportDay[] = await Promise.all(
-          tripDays.map(async (day) => {
-            const segments = getTripSegments(selectedTrip, day);
-            const weatherBySegmentId = Object.fromEntries(
-              await Promise.all(
-                segments.map(async (segment) => {
-                  const weather = await fetchTripExportWeather(segment, day);
-                  return [segment.id, weather] as const;
-                }),
-              ),
-            );
-
-            return {
-              day,
-              segments,
-              weatherBySegmentId,
-            };
-          }),
+        await shareTripWithUser(
+          selectedUser.uid,
+          selectedTrip,
+          auth?.currentUser?.email ?? undefined,
+          auth?.currentUser?.uid ?? undefined,
         );
 
-        const exportTrip: Trip = {
-          ...selectedTrip,
-        };
-
-        const html = buildMobileShareTripExportHtml(
-          exportTrip,
-          exportDays,
-          selectedDay ?? selectedTrip.startDate,
+        Alert.alert(
+          "Trip shared",
+          `The trip is now visible to ${selectedUser.email} after login.`,
         );
-        const safeFileName = `${selectedTrip.name || "trip"}`
-          .trim()
-          .replace(/[^a-zA-Z0-9-_ ]+/g, "")
-          .replace(/\s+/g, "-")
-          .toLowerCase();
-        const recipientSuffix = selectedUser.email
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9@._-]+/g, "-")
-          .replace(/-+/g, "-");
-        const htmlFileName = `${safeFileName || "trip-export"}-${recipientSuffix || "user"}.html`;
-        const shareTitle = `${selectedTrip.name || "Trip export"} for ${selectedUser.email}`;
-
-        if (Platform.OS === "web") {
-          const preparedFile = new File([html], htmlFileName, {
-            type: "text/html;charset=utf-8",
-          });
-          const webShareSupported =
-            typeof navigator !== "undefined" &&
-            typeof navigator.share === "function" &&
-            window.isSecureContext &&
-            typeof navigator.canShare === "function" &&
-            navigator.canShare({ files: [preparedFile] });
-
-          if (webShareSupported) {
-            await navigator.share({
-              title: shareTitle,
-              text: `Trip plan for ${selectedUser.email}`,
-              files: [preparedFile],
-            });
-            return;
-          }
-
-          const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-          const url = URL.createObjectURL(blob);
-          const link = document.createElement("a");
-          link.href = url;
-          link.download = htmlFileName;
-          document.body.appendChild(link);
-          link.click();
-          document.body.removeChild(link);
-          URL.revokeObjectURL(url);
-          return;
-        }
-
-        const exportDirectory =
-          FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
-        if (!exportDirectory) {
-          throw new Error("No writable export directory available.");
-        }
-
-        const fileUri = `${exportDirectory}${htmlFileName}`;
-        await FileSystem.writeAsStringAsync(fileUri, html, {
-          encoding: FileSystem.EncodingType.UTF8,
-        });
-
-        const isAvailable = await Sharing.isAvailableAsync();
-        if (!isAvailable) {
-          Alert.alert(
-            "Sharing unavailable",
-            "Sharing is not available on this device right now.",
-          );
-          return;
-        }
-
-        await Sharing.shareAsync(fileUri, {
-          dialogTitle: `Share ${shareTitle}`,
-          mimeType: "text/html",
-          UTI: "public.html",
-        });
       } catch (error) {
-        console.error("[TripExportShare] Share failed", error);
-        setError("The HTML report could not be shared. Please try again.");
+        console.error("[TripShare] Share failed", error);
+        setError("The trip could not be shared with the selected user.");
       }
     },
-    [selectedDay, selectedTrip],
+    [selectedTrip],
   );
 
   const handleExportTripDailySchedule = useCallback(async () => {
@@ -3641,7 +3550,7 @@ export default function HomeScreen() {
                     style={styles.headerActionButton}
                   >
                     <ThemedText type="small" style={styles.headerActionText}>
-                      Share HTML
+                      Share trip
                     </ThemedText>
                   </Pressable>
                   <Pressable

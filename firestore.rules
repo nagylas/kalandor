@@ -9,17 +9,30 @@ service cloud.firestore {
       return isSignedIn() && request.auth.uid == userId;
     }
 
+    function isAdminUser() {
+      return isSignedIn() &&
+        exists(/databases/$(database)/documents/users/$(request.auth.uid)) &&
+        get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == 'admin';
+    }
+
     match /users/{userId} {
       allow create: if isOwner(userId)
         && request.resource.data.uid == userId
         && request.resource.data.email is string
         && request.resource.data.createdAt is string;
 
-      allow read, update, delete: if isOwner(userId);
+      allow read: if isOwner(userId) || isAdminUser();
+      allow update, delete: if isOwner(userId) || isAdminUser();
     }
 
     match /users/{userId}/trips/{tripId} {
       allow create, read, update, delete: if isOwner(userId);
+    }
+
+    match /users/{userId}/sharedTrips/{tripId} {
+      allow create: if isAdminUser() || isOwner(userId);
+      allow read: if isOwner(userId);
+      allow update, delete: if isAdminUser() || isOwner(userId);
     }
   }
 }
