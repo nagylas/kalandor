@@ -213,10 +213,7 @@ export default function AuthGate({ children }: AuthGateProps) {
   return (
     <View style={styles.adminShell}>
       <View style={styles.adminHeader}>
-        <View>
-          <Text style={styles.adminLabel}>Admin</Text>
-          <Text style={styles.adminEmail}>{user.email}</Text>
-        </View>
+        <Text style={styles.adminEmail}>{user.email}</Text>
         <Pressable style={styles.adminButton} onPress={() => signOut(auth)}>
           <Text style={styles.adminButtonText}>Log out</Text>
         </Pressable>

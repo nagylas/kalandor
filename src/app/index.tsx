@@ -1,4 +1,3 @@
-import * as DocumentPicker from "expo-document-picker";
 import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect, useRouter } from "expo-router";
 import * as Sharing from "expo-sharing";
@@ -12,7 +11,7 @@ import {
   StyleSheet,
   TextInput,
   useWindowDimensions,
-  View,
+  View
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 
@@ -23,6 +22,9 @@ const DateTimePicker =
     ? require("@react-native-community/datetimepicker").default
     : null;
 
+import { collection, getDocs } from "firebase/firestore";
+
+import { db } from "@/../firebase";
 import DaySegmentList from "@/components/DaySegmentList";
 import DayTimeTable from "@/components/DayTimeTable";
 import { PlannerPage } from "@/components/plannerpage";
@@ -189,47 +191,6 @@ function extractImageUrlsFromDetails(details: string) {
   return [...urls].slice(0, 2);
 }
 
-async function compressImageDataUrl(
-  value: string,
-  maxWidth = 1400,
-  maxHeight = 900,
-  quality = 0.72,
-) {
-  if (!value || !value.startsWith("data:image/")) {
-    return value;
-  }
-
-  const image = new Image();
-
-  const imageLoaded = await new Promise<void>((resolve, reject) => {
-    image.onload = () => resolve();
-    image.onerror = () => reject(new Error("Image load failed."));
-    image.src = value;
-  }).catch(() => undefined);
-
-  if (!imageLoaded || !image.width || !image.height) {
-    return value;
-  }
-
-  const ratio = Math.min(1, maxWidth / image.width, maxHeight / image.height);
-  const targetWidth = Math.max(1, Math.round(image.width * ratio));
-  const targetHeight = Math.max(1, Math.round(image.height * ratio));
-  const canvas = document.createElement("canvas");
-  canvas.width = targetWidth;
-  canvas.height = targetHeight;
-
-  const context = canvas.getContext("2d");
-  if (!context) {
-    return value;
-  }
-
-  context.fillStyle = "#ffffff";
-  context.fillRect(0, 0, targetWidth, targetHeight);
-  context.drawImage(image, 0, 0, targetWidth, targetHeight);
-
-  return canvas.toDataURL("image/jpeg", quality);
-}
-
 function formatExportDate(value: string) {
   if (!value) return "TBD";
 
@@ -378,390 +339,6 @@ function getExportSegmentCoordinates(
       Number.isFinite(longitude)
     ) {
       return { latitude, longitude };
-    }
-  }
-
-  return null;
-}
-
-function buildLocalRouteMapDataUrl(
-  startLat: number,
-  startLon: number,
-  endLat: number,
-  endLon: number,
-  routeCoordinates?: Array<[number, number]> | null,
-) {
-  const width = 1000;
-  const height = 300;
-  const padding = 32;
-
-  const allCoordinates =
-    routeCoordinates && routeCoordinates.length > 1
-      ? routeCoordinates
-      : [
-          [startLon, startLat] as [number, number],
-          [endLon, endLat] as [number, number],
-        ];
-
-  const latValues = allCoordinates.map(([, lat]) => lat);
-  const lonValues = allCoordinates.map(([lon]) => lon);
-  const latMin = Math.min(...latValues) - 1.2;
-  const latMax = Math.max(...latValues) + 1.2;
-  const lonMin = Math.min(...lonValues) - 1.2;
-  const lonMax = Math.max(...lonValues) + 1.2;
-
-  const projectPoint = (lon: number, lat: number) => {
-    const x =
-      padding +
-      ((lon - lonMin) / Math.max(lonMax - lonMin, 0.0001)) *
-        (width - padding * 2);
-    const y =
-      height -
-      padding -
-      ((lat - latMin) / Math.max(latMax - latMin, 0.0001)) *
-        (height - padding * 2);
-    return { x, y };
-  };
-
-  const projected = allCoordinates.map(([lon, lat]) => projectPoint(lon, lat));
-  const routePath = projected
-    .map((point, index) => `${index === 0 ? "M" : "L"} ${point.x} ${point.y}`)
-    .join(" ");
-
-  const start = projected[0];
-  const end = projected[projected.length - 1];
-
-  const gridLines = Array.from({ length: 8 }, (_, index) => {
-    const x = padding + (index / 7) * (width - padding * 2);
-    const y = padding + (index / 7) * (height - padding * 2);
-    return `
-      <line x1="${x}" y1="${padding}" x2="${x}" y2="${height - padding}" stroke="rgba(147,197,253,0.20)" stroke-width="1" />
-      <line x1="${padding}" y1="${y}" x2="${width - padding}" y2="${y}" stroke="rgba(147,197,253,0.18)" stroke-width="1" />
-    `;
-  }).join("");
-
-  const svg = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="300" viewBox="0 0 1000 300">
-      <defs>
-        <linearGradient id="routeBg" x1="0" x2="1" y1="0" y2="1">
-          <stop offset="0%" stop-color="#0f172a"/>
-          <stop offset="100%" stop-color="#1d4ed8"/>
-        </linearGradient>
-      </defs>
-      <rect width="1000" height="300" rx="20" fill="url(#routeBg)"/>
-      ${gridLines}
-      <path d="${routePath}" fill="none" stroke="#fbbf24" stroke-width="8" stroke-linecap="round" stroke-linejoin="round"/>
-      <circle cx="${start.x}" cy="${start.y}" r="11" fill="#60a5fa" stroke="#dbeafe" stroke-width="3"/>
-      <circle cx="${end.x}" cy="${end.y}" r="11" fill="#f97316" stroke="#fff7ed" stroke-width="3"/>
-      <text x="${start.x + 18}" y="${start.y - 12}" fill="#e0f2fe" font-family="Arial, sans-serif" font-size="18" font-weight="700">Start</text>
-      <text x="${end.x + 18}" y="${end.y - 12}" fill="#fff7ed" font-family="Arial, sans-serif" font-size="18" font-weight="700">Finish</text>
-    </svg>
-  `;
-
-  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
-}
-
-function buildTripOverviewMapDataUrl(exportDays: TripExportDay[]) {
-  const allSegments = exportDays.flatMap((dayEntry) => dayEntry.segments);
-  const markers: Array<[number, number, string]> = [];
-
-  allSegments.forEach((segment) => {
-    if (segment.locationMode === "single") {
-      const coordinates = getExportSegmentCoordinates(segment);
-      if (coordinates) {
-        markers.push([coordinates.latitude, coordinates.longitude, "orange"]);
-      }
-      return;
-    }
-
-    if (Array.isArray(segment.routeStops) && segment.routeStops.length > 0) {
-      segment.routeStops.forEach((stop) => {
-        markers.push([Number(stop.lat), Number(stop.lon), "green"]);
-      });
-      return;
-    }
-
-    const startLat = segment.startLocationLat;
-    const startLon = segment.startLocationLon;
-    const endLat = segment.endLocationLat;
-    const endLon = segment.endLocationLon;
-
-    if (
-      typeof startLat === "number" &&
-      Number.isFinite(startLat) &&
-      typeof startLon === "number" &&
-      Number.isFinite(startLon)
-    ) {
-      markers.push([startLat, startLon, "green"]);
-    }
-
-    if (
-      typeof endLat === "number" &&
-      Number.isFinite(endLat) &&
-      typeof endLon === "number" &&
-      Number.isFinite(endLon)
-    ) {
-      markers.push([endLat, endLon, "orange"]);
-    }
-  });
-
-  if (markers.length === 0) {
-    return null;
-  }
-
-  const lats = markers.map(([lat]) => lat);
-  const lons = markers.map(([, lon]) => lon);
-  const centerLat = (Math.min(...lats) + Math.max(...lats)) / 2;
-  const centerLon = (Math.min(...lons) + Math.max(...lons)) / 2;
-  const latSpan = Math.max(Math.max(...lats) - Math.min(...lats), 0.2);
-  const lonSpan = Math.max(Math.max(...lons) - Math.min(...lons), 0.2);
-  const zoom = Math.max(
-    4,
-    Math.min(12, Math.round(9 - Math.log2(Math.max(latSpan, lonSpan) * 8 + 1))),
-  );
-
-  const markerList = markers
-    .slice(0, 20)
-    .map(([lat, lon, color]) => `${lat},${lon},${color}`)
-    .join("|");
-
-  return `https://staticmap.openstreetmap.de/staticmap.php?center=${centerLat},${centerLon}&zoom=${zoom}&size=1200x1260&maptype=mapnik&markers=${markerList}`;
-}
-
-function buildTripOverviewGoogleMapsEmbedUrl(
-  exportDays: TripExportDay[],
-  savedLocations?: Array<{
-    lat: string;
-    lon: string;
-    display_name?: string;
-  }> | null,
-) {
-  const allSegments = exportDays.flatMap((dayEntry) => dayEntry.segments);
-  const coordinates: Array<[number, number]> = [];
-
-  allSegments.forEach((segment) => {
-    if (segment.locationMode === "single") {
-      const singleCoords = getExportSegmentCoordinates(segment);
-      if (singleCoords) {
-        coordinates.push([singleCoords.latitude, singleCoords.longitude]);
-      }
-      return;
-    }
-
-    if (Array.isArray(segment.routeStops) && segment.routeStops.length > 0) {
-      coordinates.push(
-        ...segment.routeStops.map(
-          (stop) => [stop.lat, stop.lon] as [number, number],
-        ),
-      );
-      return;
-    }
-
-    const startLat = segment.startLocationLat;
-    const startLon = segment.startLocationLon;
-    const endLat = segment.endLocationLat;
-    const endLon = segment.endLocationLon;
-
-    if (
-      typeof startLat === "number" &&
-      Number.isFinite(startLat) &&
-      typeof startLon === "number" &&
-      Number.isFinite(startLon)
-    ) {
-      coordinates.push([startLat, startLon]);
-    }
-
-    if (
-      typeof endLat === "number" &&
-      Number.isFinite(endLat) &&
-      typeof endLon === "number" &&
-      Number.isFinite(endLon)
-    ) {
-      coordinates.push([endLat, endLon]);
-    }
-  });
-
-  for (const location of savedLocations ?? []) {
-    const lat = Number(location.lat);
-    const lon = Number(location.lon);
-    if (Number.isFinite(lat) && Number.isFinite(lon)) {
-      coordinates.push([lat, lon]);
-    }
-  }
-
-  if (coordinates.length === 0) {
-    return null;
-  }
-
-  const lats = coordinates.map(([lat]) => lat);
-  const lons = coordinates.map(([, lon]) => lon);
-  const latMin = Math.min(...lats);
-  const latMax = Math.max(...lats);
-  const lonMin = Math.min(...lons);
-  const lonMax = Math.max(...lons);
-
-  const centerLat = (latMin + latMax) / 2;
-  const centerLon = (lonMin + lonMax) / 2;
-  const latSpan = Math.max(latMax - latMin, 0.01);
-  const lonSpan = Math.max(lonMax - lonMin, 0.01);
-  const zoom = Math.max(
-    3,
-    Math.min(
-      12,
-      Math.round(Math.max(4 - Math.log2(Math.max(latSpan, lonSpan) * 8), 3)),
-    ),
-  );
-
-  const markers = coordinates.slice(0, 12).map(([lat, lon], index) => ({
-    lat,
-    lon,
-    color: index === 0 ? "red" : "blue",
-  }));
-
-  const markerList = markers
-    .map((marker) => `${marker.lat},${marker.lon},${marker.color}`)
-    .join("|");
-
-  return `https://staticmap.openstreetmap.de/staticmap.php?center=${centerLat},${centerLon}&zoom=${zoom}&size=1200x1260&maptype=mapnik&markers=${markerList}`;
-}
-
-function buildTripLeafletMapPoints(exportDays: TripExportDay[]) {
-  const points: Array<{ lat: number; lon: number; label: string }> = [];
-
-  exportDays.forEach((dayEntry) => {
-    dayEntry.segments.forEach((segment) => {
-      if (segment.locationMode === "single") {
-        const coordinates = getExportSegmentCoordinates(segment);
-        if (coordinates) {
-          points.push({
-            lat: coordinates.latitude,
-            lon: coordinates.longitude,
-            label: segment.activityDescription || "Location",
-          });
-        }
-        return;
-      }
-
-      if (Array.isArray(segment.routeStops) && segment.routeStops.length > 0) {
-        segment.routeStops.forEach((stop) => {
-          const lat = Number(stop.lat);
-          const lon = Number(stop.lon);
-          if (Number.isFinite(lat) && Number.isFinite(lon)) {
-            points.push({
-              lat,
-              lon,
-              label: stop.display_name || segment.activityDescription || "Stop",
-            });
-          }
-        });
-        return;
-      }
-
-      const startLat = Number(segment.startLocationLat);
-      const startLon = Number(segment.startLocationLon);
-      const endLat = Number(segment.endLocationLat);
-      const endLon = Number(segment.endLocationLon);
-
-      if (Number.isFinite(startLat) && Number.isFinite(startLon)) {
-        points.push({
-          lat: startLat,
-          lon: startLon,
-          label:
-            segment.startLocation || segment.activityDescription || "Start",
-        });
-      }
-
-      if (Number.isFinite(endLat) && Number.isFinite(endLon)) {
-        points.push({
-          lat: endLat,
-          lon: endLon,
-          label: segment.endLocation || segment.activityDescription || "Finish",
-        });
-      }
-    });
-  });
-
-  return points.filter(
-    (point, index, array) =>
-      index ===
-      array.findIndex(
-        (candidate) =>
-          candidate.lat === point.lat &&
-          candidate.lon === point.lon &&
-          candidate.label === point.label,
-      ),
-  );
-}
-
-function buildRouteMapImageUrl(segment: Segment, trip?: Trip) {
-  if (
-    segment.routeMapUrl &&
-    !String(segment.routeMapUrl).startsWith("data:image/png;base64")
-  ) {
-    return segment.routeMapUrl;
-  }
-
-  if (segment.locationMode === "single") {
-    const coordinates = getExportSegmentCoordinates(segment);
-    if (!coordinates) {
-      return null;
-    }
-
-    return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(`
-      <svg xmlns="http://www.w3.org/2000/svg" width="1000" height="260" viewBox="0 0 1000 260">
-        <rect width="1000" height="260" fill="#0f172a" rx="20"/>
-        <circle cx="500" cy="130" r="70" fill="#1d4ed8" opacity="0.7"/>
-        <circle cx="500" cy="130" r="28" fill="#60a5fa"/>
-        <text x="500" y="130" text-anchor="middle" fill="#e0f2fe" font-family="Arial, sans-serif" font-size="28" font-weight="700">${segment.activityDescription.slice(0, 18) || "Location"}</text>
-      </svg>
-    `)}`;
-  }
-
-  if (segment.locationMode === "route") {
-    const startLat = segment.startLocationLat;
-    const startLon = segment.startLocationLon;
-    const endLat = segment.endLocationLat;
-    const endLon = segment.endLocationLon;
-
-    if (
-      typeof startLat === "number" &&
-      Number.isFinite(startLat) &&
-      typeof startLon === "number" &&
-      Number.isFinite(startLon) &&
-      typeof endLat === "number" &&
-      Number.isFinite(endLat) &&
-      typeof endLon === "number" &&
-      Number.isFinite(endLon)
-    ) {
-      return buildLocalRouteMapDataUrl(startLat, startLon, endLat, endLon);
-    }
-
-    const startLocation = trip?.savedLocations?.find(
-      (location) => location.display_name === segment.startLocation,
-    );
-    const endLocation = trip?.savedLocations?.find(
-      (location) => location.display_name === segment.endLocation,
-    );
-
-    if (startLocation && endLocation) {
-      const startLatitude = Number(startLocation.lat);
-      const startLongitude = Number(startLocation.lon);
-      const endLatitude = Number(endLocation.lat);
-      const endLongitude = Number(endLocation.lon);
-
-      if (
-        Number.isFinite(startLatitude) &&
-        Number.isFinite(startLongitude) &&
-        Number.isFinite(endLatitude) &&
-        Number.isFinite(endLongitude)
-      ) {
-        return buildLocalRouteMapDataUrl(
-          startLatitude,
-          startLongitude,
-          endLatitude,
-          endLongitude,
-        );
-      }
     }
   }
 
@@ -1414,33 +991,6 @@ function buildTripExportHtml(
             font-size: 30px;
             letter-spacing: -0.04em;
             color: var(--text);
-          }
-          .trip-map-shell {
-            position: relative;
-            width: 100%;
-            height: 384px;
-            margin: 0 0 18px 0;
-            border-radius: 12px;
-            overflow: hidden;
-            border: 2px solid #93c5fd;
-            background: #dbeafe;
-            box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.2);
-          }
-          .trip-map-shell > .map-surface,
-          .trip-map-shell .leaflet-container,
-          .trip-map-shell .leaflet-pane,
-          .trip-map-shell .leaflet-map-pane,
-          .trip-map-shell .leaflet-tile-pane,
-          .trip-map-shell .leaflet-layer,
-          .trip-map-shell .leaflet-overlay-pane,
-          .trip-map-shell .leaflet-shadow-pane,
-          .trip-map-shell .leaflet-marker-pane {
-            position: absolute !important;
-            inset: 0 !important;
-            width: 100% !important;
-            height: 100% !important;
-            min-height: 100%;
-            background: #dbeafe;
           }
           .meta-stack {
             display: none;
@@ -2602,56 +2152,6 @@ function buildCompactTripExportHtml(
             letter-spacing: -0.04em;
             color: var(--text);
           }
-          .compact-overview-map {
-            position: relative;
-            width: 100%;
-            height: 420px;
-            margin: 0 0 18px 0;
-            overflow: hidden;
-            border-radius: 12px;
-            border: 2px solid #93c5fd;
-            background: #dbeafe;
-            box-shadow: inset 0 0 0 1px rgba(59, 130, 246, 0.2);
-          }
-          .compact-overview-map > .map-surface,
-          .compact-overview-map .leaflet-container,
-          .compact-overview-map .leaflet-pane,
-          .compact-overview-map .leaflet-map-pane,
-          .compact-overview-map .leaflet-tile-pane,
-          .compact-overview-map .leaflet-layer,
-          .compact-overview-map .leaflet-overlay-pane,
-          .compact-overview-map .leaflet-shadow-pane,
-          .compact-overview-map .leaflet-marker-pane {
-            position: absolute !important;
-            inset: 0 !important;
-            width: 100% !important;
-            height: 100% !important;
-            min-height: 100%;
-            background: #dbeafe;
-          }
-          .compact-overview-map img {
-            display: block;
-            width: 100%;
-            height: 420px;
-            border: 0;
-            background: #dbeafe;
-            object-fit: cover;
-          }
-          .compact-map-image-wrap {
-            margin: 0 0 18px 0;
-            width: 100%;
-            border-radius: 10px;
-            overflow: hidden;
-            background: #f3f4f6;
-            border: 1px solid #e5e7eb;
-          }
-          .compact-map-image-wrap img {
-            display: block;
-            width: 100%;
-            max-height: 1000px;
-            object-fit: contain;
-            background: #ffffff;
-          }
           .compact-day-page {
             page-break-before: always;
             break-before: page;
@@ -2935,8 +2435,6 @@ function buildCompactTripExportHtml(
               <h1>${escapeHtml(trip.name)}</h1>
             </div>
 
-            ${trip.mapImageDataUrl ? `<div class="compact-map-image-wrap"><img src="${escapeHtml(trip.mapImageDataUrl)}" alt="${escapeHtml(trip.mapImageName ?? "Trip map")}" /></div>` : ""}
-
             ${dayPanelsMarkup}
           </div>
         </div>
@@ -2973,6 +2471,10 @@ export default function HomeScreen() {
   const [draggingSegmentId, setDraggingSegmentId] = useState<string | null>(
     null,
   );
+  const [shareUserPickerOpen, setShareUserPickerOpen] = useState(false);
+  const [shareUsers, setShareUsers] = useState<
+    Array<{ uid: string; email: string }>
+  >([]);
 
   const loadTrips = useCallback(async () => {
     try {
@@ -3185,6 +2687,47 @@ export default function HomeScreen() {
     setIsEditing(false);
   };
 
+  const fetchRegularUsers = useCallback(async () => {
+    if (!db) {
+      return [] as Array<{ uid: string; email: string }>;
+    }
+
+    try {
+      const snapshot = await getDocs(collection(db, "users"));
+      return snapshot.docs
+        .map((docSnapshot) => {
+          const data = docSnapshot.data();
+          const email = typeof data.email === "string" ? data.email.trim() : "";
+          const role = typeof data.role === "string" ? data.role.trim() : "";
+          return { uid: docSnapshot.id, email, role };
+        })
+        .filter((item) => item.role === "user" && item.email)
+        .sort((left, right) => left.email.localeCompare(right.email))
+        .map(({ uid, email }) => ({ uid, email }));
+    } catch (error) {
+      console.warn("Failed to load regular users for report sharing:", error);
+      return [] as Array<{ uid: string; email: string }>;
+    }
+  }, []);
+
+  const handleShareHtmlSelection = useCallback(async () => {
+    if (!selectedTrip) {
+      return;
+    }
+
+    const users = await fetchRegularUsers();
+    if (users.length === 0) {
+      Alert.alert(
+        "No regular users available",
+        "There are no regular user accounts to share the HTML report with yet.",
+      );
+      return;
+    }
+
+    setShareUsers(users);
+    setShareUserPickerOpen(true);
+  }, [fetchRegularUsers, selectedTrip]);
+
   const handleShareTripExport = useCallback(async () => {
     if (!selectedTrip) {
       return;
@@ -3217,14 +2760,6 @@ export default function HomeScreen() {
 
       const exportTrip: Trip = {
         ...selectedTrip,
-        mapImageDataUrl: selectedTrip.mapImageDataUrl
-          ? await compressImageDataUrl(
-              selectedTrip.mapImageDataUrl,
-              1200,
-              800,
-              0.68,
-            )
-          : undefined,
       };
 
       const html = buildMobileShareTripExportHtml(
@@ -3356,14 +2891,6 @@ export default function HomeScreen() {
 
       const exportTrip: Trip = {
         ...selectedTrip,
-        mapImageDataUrl: selectedTrip.mapImageDataUrl
-          ? await compressImageDataUrl(
-              selectedTrip.mapImageDataUrl,
-              1200,
-              800,
-              0.68,
-            )
-          : undefined,
       };
 
       const html = buildTripExportHtml(
@@ -3384,79 +2911,128 @@ export default function HomeScreen() {
   }, [selectedTrip, selectedDay]);
 
   const handleExportTripCompact = useCallback(async () => {
-    if (!selectedTrip || Platform.OS !== "web") {
+    await handleShareHtmlSelection();
+  }, [handleShareHtmlSelection]);
+
+  const handleShareSelectedUserReport = useCallback(
+    async (selectedUser: { uid: string; email: string }) => {
       if (!selectedTrip) {
         return;
       }
 
-      Alert.alert(
-        "Export available on web",
-        "Open this trip in the browser to print a PDF version.",
-      );
-      return;
-    }
+      setShareUserPickerOpen(false);
 
-    const printWindow = window.open(
-      "about:blank",
-      "_blank",
-      "width=1200,height=900",
-    );
-    if (!printWindow) {
-      setError(
-        "The browser blocked the export window. Please allow pop-ups and try again.",
-      );
-      return;
-    }
+      try {
+        const tripDays = enumerateDays(
+          selectedTrip.startDate,
+          selectedTrip.endDate,
+        );
+        const exportDays: TripExportDay[] = await Promise.all(
+          tripDays.map(async (day) => {
+            const segments = getTripSegments(selectedTrip, day);
+            const weatherBySegmentId = Object.fromEntries(
+              await Promise.all(
+                segments.map(async (segment) => {
+                  const weather = await fetchTripExportWeather(segment, day);
+                  return [segment.id, weather] as const;
+                }),
+              ),
+            );
 
-    try {
-      const tripDays = enumerateDays(
-        selectedTrip.startDate,
-        selectedTrip.endDate,
-      );
-      const exportDays: TripExportDay[] = await Promise.all(
-        tripDays.map(async (day) => {
-          const segments = getTripSegments(selectedTrip, day);
-          const weatherBySegmentId = Object.fromEntries(
-            await Promise.all(
-              segments.map(async (segment) => {
-                const weather = await fetchTripExportWeather(segment, day);
-                return [segment.id, weather] as const;
-              }),
-            ),
+            return {
+              day,
+              segments,
+              weatherBySegmentId,
+            };
+          }),
+        );
+
+        const exportTrip: Trip = {
+          ...selectedTrip,
+        };
+
+        const html = buildMobileShareTripExportHtml(
+          exportTrip,
+          exportDays,
+          selectedDay ?? selectedTrip.startDate,
+        );
+        const safeFileName = `${selectedTrip.name || "trip"}`
+          .trim()
+          .replace(/[^a-zA-Z0-9-_ ]+/g, "")
+          .replace(/\s+/g, "-")
+          .toLowerCase();
+        const recipientSuffix = selectedUser.email
+          .trim()
+          .toLowerCase()
+          .replace(/[^a-z0-9@._-]+/g, "-")
+          .replace(/-+/g, "-");
+        const htmlFileName = `${safeFileName || "trip-export"}-${recipientSuffix || "user"}.html`;
+        const shareTitle = `${selectedTrip.name || "Trip export"} for ${selectedUser.email}`;
+
+        if (Platform.OS === "web") {
+          const preparedFile = new File([html], htmlFileName, {
+            type: "text/html;charset=utf-8",
+          });
+          const webShareSupported =
+            typeof navigator !== "undefined" &&
+            typeof navigator.share === "function" &&
+            window.isSecureContext &&
+            typeof navigator.canShare === "function" &&
+            navigator.canShare({ files: [preparedFile] });
+
+          if (webShareSupported) {
+            await navigator.share({
+              title: shareTitle,
+              text: `Trip plan for ${selectedUser.email}`,
+              files: [preparedFile],
+            });
+            return;
+          }
+
+          const blob = new Blob([html], { type: "text/html;charset=utf-8" });
+          const url = URL.createObjectURL(blob);
+          const link = document.createElement("a");
+          link.href = url;
+          link.download = htmlFileName;
+          document.body.appendChild(link);
+          link.click();
+          document.body.removeChild(link);
+          URL.revokeObjectURL(url);
+          return;
+        }
+
+        const exportDirectory =
+          FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
+        if (!exportDirectory) {
+          throw new Error("No writable export directory available.");
+        }
+
+        const fileUri = `${exportDirectory}${htmlFileName}`;
+        await FileSystem.writeAsStringAsync(fileUri, html, {
+          encoding: FileSystem.EncodingType.UTF8,
+        });
+
+        const isAvailable = await Sharing.isAvailableAsync();
+        if (!isAvailable) {
+          Alert.alert(
+            "Sharing unavailable",
+            "Sharing is not available on this device right now.",
           );
+          return;
+        }
 
-          return {
-            day,
-            segments,
-            weatherBySegmentId,
-          };
-        }),
-      );
-
-      const exportTrip: Trip = {
-        ...selectedTrip,
-        mapImageDataUrl: selectedTrip.mapImageDataUrl
-          ? await compressImageDataUrl(
-              selectedTrip.mapImageDataUrl,
-              1200,
-              800,
-              0.68,
-            )
-          : undefined,
-      };
-
-      const html = buildCompactTripExportHtml(exportTrip, exportDays);
-      const exportDoc = printWindow.document;
-
-      exportDoc.open();
-      exportDoc.write(html);
-      exportDoc.close();
-      printWindow.focus();
-    } catch (error) {
-      console.error("[TripExportCompact] Export failed", error);
-      setError("The compact export could not be prepared. Please try again.");
-    }
-  }, [selectedTrip, selectedDay]);
+        await Sharing.shareAsync(fileUri, {
+          dialogTitle: `Share ${shareTitle}`,
+          mimeType: "text/html",
+          UTI: "public.html",
+        });
+      } catch (error) {
+        console.error("[TripExportShare] Share failed", error);
+        setError("The HTML report could not be shared. Please try again.");
+      }
+    },
+    [selectedDay, selectedTrip],
+  );
 
   const handleExportTripDailySchedule = useCallback(async () => {
     if (!selectedTrip || Platform.OS !== "web") {
@@ -3523,83 +3099,6 @@ export default function HomeScreen() {
     }
   }, [selectedTrip, selectedDay]);
 
-  const handleAttachTripMap = useCallback(async () => {
-    if (!selectedTrip) {
-      return;
-    }
-
-    try {
-      let nextMapImageDataUrl = selectedTrip.mapImageDataUrl;
-      let nextMapImageName = selectedTrip.mapImageName ?? "trip-map";
-
-      if (Platform.OS === "web") {
-        const picker = document.createElement("input");
-        picker.type = "file";
-        picker.accept = "image/*";
-
-        const file = await new Promise<File | null>((resolve) => {
-          picker.onchange = () => {
-            const selectedFile = picker.files?.[0] ?? null;
-            resolve(selectedFile);
-          };
-          picker.click();
-        });
-
-        if (!file) {
-          return;
-        }
-
-        nextMapImageName = file.name || nextMapImageName;
-        nextMapImageDataUrl = await new Promise<string>((resolve, reject) => {
-          const reader = new FileReader();
-          reader.onload = () => {
-            const loaded =
-              typeof reader.result === "string" ? reader.result : "";
-            resolve(loaded || "");
-          };
-          reader.onerror = () =>
-            reject(new Error("Map file could not be read."));
-          reader.readAsDataURL(file);
-        });
-      } else {
-        const result = await DocumentPicker.getDocumentAsync({
-          type: ["image/png", "image/jpeg", "image/jpg", "image/webp"],
-          copyToCacheDirectory: true,
-        });
-
-        if (result.canceled || !result.assets?.[0]) {
-          return;
-        }
-
-        const asset = result.assets[0];
-        const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-          encoding: FileSystem.EncodingType.Base64,
-        });
-        nextMapImageName = asset.name ?? nextMapImageName;
-        nextMapImageDataUrl = `data:${asset.mimeType || "image/png"};base64,${base64}`;
-      }
-
-      const nextTrip: Trip = {
-        ...selectedTrip,
-        mapImageDataUrl: nextMapImageDataUrl,
-        mapImageName: nextMapImageName,
-      };
-
-      const nextTrips = trips.map((trip) =>
-        trip.id === selectedTrip.id ? nextTrip : trip,
-      );
-
-      const orderedTrips = sortTripsByStartDate(nextTrips);
-      setTrips(orderedTrips);
-      await writeTripsToFile(orderedTrips);
-    } catch (error) {
-      console.error("[TripMapUpload] Map attach failed", error);
-      Alert.alert(
-        "Map upload failed",
-        "The map file could not be attached to this trip.",
-      );
-    }
-  }, [selectedTrip, trips]);
   /* eslint-enable react-hooks/preserve-manual-memoization */
 
   const updateFormDate = (field: "startDate" | "endDate", value: string) => {
@@ -4083,6 +3582,40 @@ export default function HomeScreen() {
             ) : null}
           </ThemedView>
 
+          {shareUserPickerOpen ? (
+            <View style={styles.shareOverlay}>
+              <View style={styles.shareSheet}>
+                <ThemedText type="subtitle" style={styles.shareTitle}>
+                  Share HTML report
+                </ThemedText>
+                <ThemedText type="small" style={styles.shareSubtitle}>
+                  Select a regular user to receive the daily plan.
+                </ThemedText>
+
+                {shareUsers.map((user) => (
+                  <Pressable
+                    key={user.uid}
+                    onPress={() => handleShareSelectedUserReport(user)}
+                    style={styles.shareUserRow}
+                  >
+                    <ThemedText type="small" style={styles.shareUserText}>
+                      {user.email}
+                    </ThemedText>
+                  </Pressable>
+                ))}
+
+                <Pressable
+                  onPress={() => setShareUserPickerOpen(false)}
+                  style={styles.shareCancelButton}
+                >
+                  <ThemedText type="small" style={styles.shareCancelText}>
+                    Cancel
+                  </ThemedText>
+                </Pressable>
+              </View>
+            </View>
+          ) : null}
+
           {selectedTrip ? (
             <ThemedView
               style={[
@@ -4108,7 +3641,7 @@ export default function HomeScreen() {
                     style={styles.headerActionButton}
                   >
                     <ThemedText type="small" style={styles.headerActionText}>
-                      Download HTML
+                      Share HTML
                     </ThemedText>
                   </Pressable>
                   <Pressable
@@ -4125,14 +3658,6 @@ export default function HomeScreen() {
                   >
                     <ThemedText type="small" style={styles.headerActionText}>
                       Share to phone
-                    </ThemedText>
-                  </Pressable>
-                  <Pressable
-                    onPress={handleAttachTripMap}
-                    style={styles.headerActionButton}
-                  >
-                    <ThemedText type="small" style={styles.headerActionText}>
-                      MAP
                     </ThemedText>
                   </Pressable>
                   <Pressable
@@ -4508,6 +4033,50 @@ const styles = StyleSheet.create({
   dayWorkspaceRowDesktop: {
     flexDirection: "row",
     alignItems: "stretch",
+  },
+  shareOverlay: {
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: "rgba(2, 6, 23, 0.72)",
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing.four,
+    zIndex: 50,
+  },
+  shareSheet: {
+    width: "100%",
+    maxWidth: 480,
+    backgroundColor: "#111827",
+    borderRadius: Spacing.three,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    padding: Spacing.four,
+    gap: Spacing.two,
+  },
+  shareTitle: {
+    color: "#F9FAFB",
+  },
+  shareSubtitle: {
+    color: "#C7D2FE",
+  },
+  shareUserRow: {
+    paddingVertical: Spacing.two,
+    paddingHorizontal: Spacing.three,
+    borderRadius: Spacing.two,
+    borderWidth: 1,
+    borderColor: "rgba(255,255,255,0.12)",
+    backgroundColor: "rgba(255,255,255,0.04)",
+  },
+  shareUserText: {
+    color: "#F9FAFB",
+  },
+  shareCancelButton: {
+    marginTop: Spacing.one,
+    alignItems: "center",
+    paddingVertical: Spacing.two,
+  },
+  shareCancelText: {
+    color: "#E2E8F0",
+    fontWeight: "600",
   },
   dayWorkspaceTableColumn: {
     flex: 1,

@@ -27,8 +27,6 @@ export type Trip = {
   endDate: string;
   days?: Record<string, DayPlan>;
   savedLocations?: SavedTripLocation[];
-  mapImageDataUrl?: string;
-  mapImageName?: string;
 };
 
 function getCurrentUserId() {
@@ -365,12 +363,6 @@ function sanitizeTrip(value: unknown): Trip | null {
     endDate: value.endDate,
     days,
     savedLocations,
-    mapImageDataUrl:
-      typeof value.mapImageDataUrl === "string"
-        ? value.mapImageDataUrl
-        : undefined,
-    mapImageName:
-      typeof value.mapImageName === "string" ? value.mapImageName : undefined,
   };
 }
 
