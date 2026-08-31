@@ -1,18 +1,19 @@
+import { getAnalytics } from "firebase/analytics";
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: process.env.EXPO_PUBLIC_FIREBASE_API_KEY,
-  authDomain: process.env.EXPO_PUBLIC_FIREBASE_AUTH_DOMAIN,
-  projectId: process.env.EXPO_PUBLIC_FIREBASE_PROJECT_ID,
-  storageBucket: process.env.EXPO_PUBLIC_FIREBASE_STORAGE_BUCKET,
-  messagingSenderId: process.env.EXPO_PUBLIC_FIREBASE_MESSAGING_SENDER_ID,
-  appId: process.env.EXPO_PUBLIC_FIREBASE_APP_ID,
+  apiKey: "AIzaSyDFr8Oe0li1TitBdk691gjzCd2Aa3eO3rs",
+  authDomain: "kalandor-7d365.firebaseapp.com",
+  projectId: "kalandor-7d365",
+  storageBucket: "kalandor-7d365.firebasestorage.app",
+  messagingSenderId: "844883870713",
+  appId: "1:844883870713:web:dabf13761f4df7f50b7328",
+  measurementId: "G-42WCTQP3CK",
 };
 
-const hasFirebaseConfig = Object.values(firebaseConfig).every(Boolean);
-
-export const app = hasFirebaseConfig ? initializeApp(firebaseConfig) : null;
-export const auth = app ? getAuth(app) : null;
-export const db = app ? getFirestore(app) : null;
+export const app = initializeApp(firebaseConfig);
+export const analytics = getAnalytics(app);
+export const auth = getAuth(app);
+export const db = getFirestore(app);
