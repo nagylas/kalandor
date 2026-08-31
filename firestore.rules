@@ -23,6 +23,7 @@ service cloud.firestore {
         && request.resource.data.role in ['admin', 'user'];
 
       allow read: if isOwner(userId) || isAdminUser();
+      allow list: if isAdminUser();
       allow update, delete: if isOwner(userId) || isAdminUser();
     }
 
@@ -33,6 +34,7 @@ service cloud.firestore {
     match /users/{userId}/sharedTrips/{tripId} {
       allow create: if isAdminUser() || isOwner(userId);
       allow read: if isOwner(userId);
+      allow list: if isOwner(userId);
       allow update, delete: if isAdminUser() || isOwner(userId);
     }
   }
