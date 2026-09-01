@@ -522,37 +522,51 @@ async function syncTripSegments(uid: string, trip: Trip) {
     ]),
   );
 
-  const activeSegmentIds = new Set<string>();
-  const segmentsByDay = trip.days ?? {};
+  const normalizedSegments = new Map<
+    string,
+    { segment: Segment; day: string; status: "scheduled" | "available" }
+  >();
 
-  for (const [dayKey, dayPlan] of Object.entries(segmentsByDay)) {
-    const segmentEntries = [
+  for (const [dayKey, dayPlan] of Object.entries(trip.days ?? {})) {
+    const scheduledIds = new Set(
+      (dayPlan?.segments ?? []).map((segment) => segment.id),
+    );
+
+    for (const segment of [
       ...(dayPlan?.segments ?? []),
       ...(dayPlan?.availableSegments ?? []),
-    ];
+    ]) {
+      if (!segment?.id) {
+        continue;
+      }
 
-    for (const segment of segmentEntries) {
-      activeSegmentIds.add(segment.id);
-      const existingSegment = existingById.get(segment.id);
-
-      await setDoc(doc(tripSegmentsCollection, segment.id), {
-        ...segment,
-        tripId: trip.id,
+      normalizedSegments.set(segment.id, {
+        segment,
         day: dayKey,
-        ownerUid: uid,
-        status: (dayPlan?.segments ?? []).some(
-          (scheduledSegment) => scheduledSegment.id === segment.id,
-        )
-          ? "scheduled"
-          : "available",
-        updatedAt: new Date().toISOString(),
-        createdAt:
-          typeof existingSegment?.createdAt === "string"
-            ? existingSegment.createdAt
-            : new Date().toISOString(),
-        deletedAt: null,
+        status: scheduledIds.has(segment.id) ? "scheduled" : "available",
       });
     }
+  }
+
+  const activeSegmentIds = new Set<string>();
+
+  for (const [segmentId, entry] of normalizedSegments.entries()) {
+    activeSegmentIds.add(segmentId);
+    const existingSegment = existingById.get(segmentId);
+
+    await setDoc(doc(tripSegmentsCollection, segmentId), {
+      ...entry.segment,
+      tripId: trip.id,
+      day: entry.day,
+      ownerUid: uid,
+      status: entry.status,
+      updatedAt: new Date().toISOString(),
+      createdAt:
+        typeof existingSegment?.createdAt === "string"
+          ? existingSegment.createdAt
+          : new Date().toISOString(),
+      deletedAt: null,
+    });
   }
 
   for (const segmentDoc of existingSnapshot.docs) {
