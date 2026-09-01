@@ -27,6 +27,8 @@ export type Trip = {
   endDate: string;
   days?: Record<string, DayPlan>;
   savedLocations?: SavedTripLocation[];
+  updatedAt?: string;
+  ownerUid?: string;
 };
 
 export type SharedTripRecord = Trip & {
@@ -377,6 +379,9 @@ function sanitizeTrip(value: unknown): Trip | null {
     endDate: value.endDate,
     days,
     savedLocations,
+    updatedAt:
+      typeof value.updatedAt === "string" ? value.updatedAt : undefined,
+    ownerUid: typeof value.ownerUid === "string" ? value.ownerUid : undefined,
   };
 }
 
@@ -495,6 +500,71 @@ export async function shareTripWithUser(
   });
 }
 
+async function syncTripSegments(uid: string, trip: Trip) {
+  if (!db) {
+    return;
+  }
+
+  const tripSegmentsCollection = collection(
+    db,
+    "users",
+    uid,
+    "trips",
+    trip.id,
+    "segments",
+  );
+
+  const activeSegmentIds = new Set<string>();
+  const segmentsByDay = trip.days ?? {};
+
+  for (const [dayKey, dayPlan] of Object.entries(segmentsByDay)) {
+    const segmentEntries = [
+      ...(dayPlan?.segments ?? []),
+      ...(dayPlan?.availableSegments ?? []),
+    ];
+
+    for (const segment of segmentEntries) {
+      activeSegmentIds.add(segment.id);
+      const existingDoc = await getDocs(tripSegmentsCollection);
+      const existingSegment = existingDoc.docs.find(
+        (docSnapshot) => docSnapshot.id === segment.id,
+      );
+
+      await setDoc(doc(tripSegmentsCollection, segment.id), {
+        ...segment,
+        tripId: trip.id,
+        day: dayKey,
+        ownerUid: uid,
+        status: (dayPlan?.segments ?? []).some(
+          (scheduledSegment) => scheduledSegment.id === segment.id,
+        )
+          ? "scheduled"
+          : "available",
+        updatedAt: new Date().toISOString(),
+        createdAt:
+          typeof existingSegment?.data()?.createdAt === "string"
+            ? existingSegment.data().createdAt
+            : new Date().toISOString(),
+        deletedAt: null,
+      });
+    }
+  }
+
+  const snapshot = await getDocs(tripSegmentsCollection);
+  for (const segmentDoc of snapshot.docs) {
+    if (activeSegmentIds.has(segmentDoc.id)) {
+      continue;
+    }
+
+    await setDoc(doc(tripSegmentsCollection, segmentDoc.id), {
+      ...segmentDoc.data(),
+      deletedAt: new Date().toISOString(),
+      deleted: true,
+      updatedAt: new Date().toISOString(),
+    });
+  }
+}
+
 export async function writeTripsToFile(trips: Trip[]) {
   const uid = getCurrentUserId();
   if (!uid || !db) {
@@ -507,11 +577,14 @@ export async function writeTripsToFile(trips: Trip[]) {
     const incomingIds = new Set(trips.map((trip) => trip.id));
 
     for (const trip of trips) {
-      await setDoc(doc(tripsCollection, trip.id), {
+      const nextTrip = {
         ...trip,
         ownerUid: uid,
         updatedAt: new Date().toISOString(),
-      });
+      };
+
+      await setDoc(doc(tripsCollection, trip.id), nextTrip);
+      await syncTripSegments(uid, nextTrip);
     }
 
     for (const existingDoc of existingSnapshot.docs) {
