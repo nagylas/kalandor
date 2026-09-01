@@ -1,6 +1,4 @@
-import * as FileSystem from "expo-file-system/legacy";
 import { useFocusEffect, useRouter } from "expo-router";
-import * as Sharing from "expo-sharing";
 import { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
@@ -2729,116 +2727,6 @@ export default function HomeScreen() {
     setShareUserPickerOpen(true);
   }, [fetchRegularUsers, selectedTrip]);
 
-  const handleShareTripExport = useCallback(async () => {
-    if (!selectedTrip) {
-      return;
-    }
-
-    try {
-      const tripDays = enumerateDays(
-        selectedTrip.startDate,
-        selectedTrip.endDate,
-      );
-      const exportDays: TripExportDay[] = await Promise.all(
-        tripDays.map(async (day) => {
-          const segments = getTripSegments(selectedTrip, day);
-          const weatherBySegmentId = Object.fromEntries(
-            await Promise.all(
-              segments.map(async (segment) => {
-                const weather = await fetchTripExportWeather(segment, day);
-                return [segment.id, weather] as const;
-              }),
-            ),
-          );
-
-          return {
-            day,
-            segments,
-            weatherBySegmentId,
-          };
-        }),
-      );
-
-      const exportTrip: Trip = {
-        ...selectedTrip,
-      };
-
-      const html = buildMobileShareTripExportHtml(
-        exportTrip,
-        exportDays,
-        selectedDay ?? selectedTrip.startDate,
-      );
-      const safeFileName = `${selectedTrip.name || "trip"}`
-        .trim()
-        .replace(/[^a-zA-Z0-9-_ ]+/g, "")
-        .replace(/\s+/g, "-")
-        .toLowerCase();
-      const shareTitle = selectedTrip.name || "Trip export";
-      const htmlFileName = `${safeFileName || "trip-export"}.html`;
-
-      if (Platform.OS === "web") {
-        const preparedFile = new File([html], htmlFileName, {
-          type: "text/html;charset=utf-8",
-        });
-        const webShareSupported =
-          typeof navigator !== "undefined" &&
-          typeof navigator.share === "function" &&
-          window.isSecureContext &&
-          typeof navigator.canShare === "function" &&
-          navigator.canShare({ files: [preparedFile] });
-
-        if (webShareSupported) {
-          await navigator.share({
-            title: shareTitle,
-            text: `Here is my trip plan: ${shareTitle}`,
-            files: [preparedFile],
-          });
-          return;
-        }
-
-        const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = htmlFileName;
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url);
-        return;
-      }
-
-      const exportDirectory =
-        FileSystem.documentDirectory ?? FileSystem.cacheDirectory;
-      if (!exportDirectory) {
-        throw new Error("No writable export directory available.");
-      }
-
-      const fileUri = `${exportDirectory}${htmlFileName}`;
-      await FileSystem.writeAsStringAsync(fileUri, html, {
-        encoding: FileSystem.EncodingType.UTF8,
-      });
-
-      const isAvailable = await Sharing.isAvailableAsync();
-      if (!isAvailable) {
-        Alert.alert(
-          "Sharing unavailable",
-          "Sharing is not available on this device right now.",
-        );
-        return;
-      }
-
-      await Sharing.shareAsync(fileUri, {
-        dialogTitle: `Share ${shareTitle}`,
-        mimeType: "text/html",
-        UTI: "public.html",
-      });
-    } catch (error) {
-      console.error("[TripExportShare] Share failed", error);
-      setError("The export could not be shared. Please try again.");
-    }
-  }, [selectedTrip, selectedDay]);
-
   /* eslint-disable react-hooks/preserve-manual-memoization */
   const handleExportTrip = useCallback(async () => {
     if (!selectedTrip || Platform.OS !== "web") {
@@ -3559,14 +3447,6 @@ export default function HomeScreen() {
                   >
                     <ThemedText type="small" style={styles.headerActionText}>
                       Daily schedule
-                    </ThemedText>
-                  </Pressable>
-                  <Pressable
-                    onPress={handleShareTripExport}
-                    style={styles.headerActionButton}
-                  >
-                    <ThemedText type="small" style={styles.headerActionText}>
-                      Share to phone
                     </ThemedText>
                   </Pressable>
                   <Pressable
