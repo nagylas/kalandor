@@ -61,6 +61,30 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
+function stripUndefinedValues<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => stripUndefinedValues(entry))
+      .filter((entry) => entry !== undefined) as T;
+  }
+
+  if (isRecord(value)) {
+    const nextValue: Record<string, unknown> = {};
+
+    for (const [key, nestedValue] of Object.entries(value)) {
+      if (nestedValue === undefined) {
+        continue;
+      }
+
+      nextValue[key] = stripUndefinedValues(nestedValue);
+    }
+
+    return nextValue as T;
+  }
+
+  return value;
+}
+
 export function sortTripsByStartDate(trips: Trip[]) {
   return [...trips].sort((a, b) => a.startDate.localeCompare(b.startDate));
 }
@@ -492,12 +516,15 @@ export async function shareTripWithUser(
   }
 
   const sharedTripsCollection = getUserSharedTripsCollection(targetUid);
-  await setDoc(doc(sharedTripsCollection, trip.id), {
-    ...trip,
-    sharedByEmail: sharedByEmail ?? "",
-    sharedByUid: sharedByUid ?? "",
-    sharedAt: new Date().toISOString(),
-  });
+  await setDoc(
+    doc(sharedTripsCollection, trip.id),
+    stripUndefinedValues({
+      ...trip,
+      sharedByEmail: sharedByEmail ?? "",
+      sharedByUid: sharedByUid ?? "",
+      sharedAt: new Date().toISOString(),
+    }),
+  );
 }
 
 async function syncTripSegments(uid: string, trip: Trip) {
@@ -554,19 +581,22 @@ async function syncTripSegments(uid: string, trip: Trip) {
     activeSegmentIds.add(segmentId);
     const existingSegment = existingById.get(segmentId);
 
-    await setDoc(doc(tripSegmentsCollection, segmentId), {
-      ...entry.segment,
-      tripId: trip.id,
-      day: entry.day,
-      ownerUid: uid,
-      status: entry.status,
-      updatedAt: new Date().toISOString(),
-      createdAt:
-        typeof existingSegment?.createdAt === "string"
-          ? existingSegment.createdAt
-          : new Date().toISOString(),
-      deletedAt: null,
-    });
+    await setDoc(
+      doc(tripSegmentsCollection, segmentId),
+      stripUndefinedValues({
+        ...entry.segment,
+        tripId: trip.id,
+        day: entry.day,
+        ownerUid: uid,
+        status: entry.status,
+        updatedAt: new Date().toISOString(),
+        createdAt:
+          typeof existingSegment?.createdAt === "string"
+            ? existingSegment.createdAt
+            : new Date().toISOString(),
+        deletedAt: null,
+      }),
+    );
   }
 
   for (const segmentDoc of existingSnapshot.docs) {
@@ -574,12 +604,15 @@ async function syncTripSegments(uid: string, trip: Trip) {
       continue;
     }
 
-    await setDoc(doc(tripSegmentsCollection, segmentDoc.id), {
-      ...segmentDoc.data(),
-      deletedAt: new Date().toISOString(),
-      deleted: true,
-      updatedAt: new Date().toISOString(),
-    });
+    await setDoc(
+      doc(tripSegmentsCollection, segmentDoc.id),
+      stripUndefinedValues({
+        ...segmentDoc.data(),
+        deletedAt: new Date().toISOString(),
+        deleted: true,
+        updatedAt: new Date().toISOString(),
+      }),
+    );
   }
 }
 
@@ -595,14 +628,14 @@ export async function writeTripsToFile(trips: Trip[]) {
     const incomingIds = new Set(trips.map((trip) => trip.id));
 
     for (const trip of trips) {
-      const nextTrip = {
+      const nextTrip = stripUndefinedValues({
         ...trip,
         ownerUid: uid,
         updatedAt: new Date().toISOString(),
-      };
+      });
 
       await setDoc(doc(tripsCollection, trip.id), nextTrip);
-      await syncTripSegments(uid, nextTrip);
+      await syncTripSegments(uid, nextTrip as Trip);
     }
 
     for (const existingDoc of existingSnapshot.docs) {

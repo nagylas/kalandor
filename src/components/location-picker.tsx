@@ -1010,6 +1010,21 @@ export function LocationPicker({ backgroundMap = false }: LocationPickerProps) {
     setRouteMessage(null);
 
     try {
+      const originLat = Number(routeOrigin.lat);
+      const originLon = Number(routeOrigin.lon);
+      const destinationLat = Number(routeDestination.lat);
+      const destinationLon = Number(routeDestination.lon);
+
+      if (
+        !Number.isFinite(originLat) ||
+        !Number.isFinite(originLon) ||
+        !Number.isFinite(destinationLat) ||
+        !Number.isFinite(destinationLon)
+      ) {
+        setRouteMessage("Select valid start and end locations before saving.");
+        return;
+      }
+
       const trips = await readTripsFromFile();
       const targetTrip = trips.find((trip) => trip.id === activeTripId);
 
@@ -1027,11 +1042,11 @@ export function LocationPicker({ backgroundMap = false }: LocationPickerProps) {
         activityDescription: trimmedDescription,
         locationMode: "route",
         startLocation: routeOrigin.display_name,
-        startLocationLat: Number(routeOrigin.lat),
-        startLocationLon: Number(routeOrigin.lon),
+        startLocationLat: originLat,
+        startLocationLon: originLon,
         endLocation: routeDestination.display_name,
-        endLocationLat: Number(routeDestination.lat),
-        endLocationLon: Number(routeDestination.lon),
+        endLocationLat: destinationLat,
+        endLocationLon: destinationLon,
         routeStops: routeStops.map((stop) => ({
           display_name: stop.display_name,
           lat: Number(stop.lat),
@@ -1111,6 +1126,14 @@ export function LocationPicker({ backgroundMap = false }: LocationPickerProps) {
     setMessage(null);
 
     try {
+      const selectedLat = Number(selected.lat);
+      const selectedLon = Number(selected.lon);
+
+      if (!Number.isFinite(selectedLat) || !Number.isFinite(selectedLon)) {
+        setMessage("Select a valid location before saving the activity.");
+        return;
+      }
+
       const trips = await readTripsFromFile();
       const targetTrip = trips.find((trip) => trip.id === activeTripId);
 
@@ -1128,8 +1151,8 @@ export function LocationPicker({ backgroundMap = false }: LocationPickerProps) {
         activityDescription: trimmedDescription,
         locationMode: "single",
         location: selected.display_name,
-        locationLat: Number(selected.lat),
-        locationLon: Number(selected.lon),
+        locationLat: selectedLat,
+        locationLon: selectedLon,
       };
 
       if (trimmedDetails) {
