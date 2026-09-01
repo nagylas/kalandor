@@ -514,6 +514,14 @@ async function syncTripSegments(uid: string, trip: Trip) {
     "segments",
   );
 
+  const existingSnapshot = await getDocs(tripSegmentsCollection);
+  const existingById = new Map(
+    existingSnapshot.docs.map((docSnapshot) => [
+      docSnapshot.id,
+      docSnapshot.data(),
+    ]),
+  );
+
   const activeSegmentIds = new Set<string>();
   const segmentsByDay = trip.days ?? {};
 
@@ -525,10 +533,7 @@ async function syncTripSegments(uid: string, trip: Trip) {
 
     for (const segment of segmentEntries) {
       activeSegmentIds.add(segment.id);
-      const existingDoc = await getDocs(tripSegmentsCollection);
-      const existingSegment = existingDoc.docs.find(
-        (docSnapshot) => docSnapshot.id === segment.id,
-      );
+      const existingSegment = existingById.get(segment.id);
 
       await setDoc(doc(tripSegmentsCollection, segment.id), {
         ...segment,
@@ -542,16 +547,15 @@ async function syncTripSegments(uid: string, trip: Trip) {
           : "available",
         updatedAt: new Date().toISOString(),
         createdAt:
-          typeof existingSegment?.data()?.createdAt === "string"
-            ? existingSegment.data().createdAt
+          typeof existingSegment?.createdAt === "string"
+            ? existingSegment.createdAt
             : new Date().toISOString(),
         deletedAt: null,
       });
     }
   }
 
-  const snapshot = await getDocs(tripSegmentsCollection);
-  for (const segmentDoc of snapshot.docs) {
+  for (const segmentDoc of existingSnapshot.docs) {
     if (activeSegmentIds.has(segmentDoc.id)) {
       continue;
     }
